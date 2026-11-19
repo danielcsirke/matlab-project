@@ -1,8 +1,9 @@
-# Study guide — build the SSB modem yourself
+# Study guide — build the SSB modem yourself (~10 hours)
 
-This guide takes you from the theory to a deployed app. **It doesn't hand you the program.**
-Each chapter explains the math and the MATLAB tools, gives you a task and a checkpoint, and
-hides the answers in collapsible blocks:
+This guide walks you through [`SPEC.md`](../../SPEC.md): a real-time SSB modulator/demodulator built from
+**toolbox System objects**, wrapped in two small classes of your own, with an App Designer GUI.
+**It doesn't hand you the program.** Each chapter explains the idea and the MATLAB tools, gives you a task
+and a checkpoint, and hides the answers in collapsible blocks:
 
 <details>
 <summary><b>💡 Hint</b> (click to open)</summary>
@@ -14,74 +15,51 @@ A small push in the right direction. Open it only after you've been stuck for a 
 <summary><b>✅ Solution</b></summary>
 
 A reference answer. Open it **after** you've written your own version, to compare.
-If you open it first, you lose most of the learning.
 </details>
 
-> The hidden solutions are a reference that was **not run in MATLAB** while writing
-> this guide (only the algorithm was checked numerically). If something in them is
-> wrong, finding the bug is part of the exercise, and your tests (chapter 6) will catch it.
-
-## Two phases
-
-The project follows [`SPEC.md`](../../SPEC.md):
-
-- **Phase 1 (required):** file-based processing with a **streaming-ready** architecture. Everything runs
-  frame by frame, exactly as a live stream would, but the input comes from files and test signals,
-  and the output is played back after processing. Base MATLAB only.
-- **Phase 2 (optional):** live microphone → speaker streaming. If Phase 1 follows the rules in
-  SPEC §9.2, this means **adding** a few small classes, with no rewriting.
-
-Parts that belong to Phase 2 are marked like this:
-
-> 🔶 **Optional — Phase 2 (live streaming).** You can skip these in Phase 1.
+> The hidden solutions were **not run in MATLAB** while writing this guide. If one is wrong, your tests
+> (chapter 6) will catch it, and fixing it is part of the exercise.
 
 ## How to work through it
 
-1. Read the chapter, including the "why" parts.
-2. Answer the 🧠 questions on paper **before** opening the answers.
-3. Write the code for the 🛠 task. Use the hint only if you're stuck for more than 20–30 minutes.
-4. Pass the 🎯 checkpoint before moving on. Each checkpoint matches a milestone in [`SPEC.md`](../../SPEC.md#11-mérföldkövek).
+1. Read the chapter.
+2. Answer the 🧠 questions **before** opening the answers. They're short.
+3. Write the code for the 🛠 tasks. Use the hint after ~15 minutes of being stuck.
+4. Pass the 🎯 checkpoint before moving on. Each one matches a milestone in [`SPEC.md`](../../SPEC.md#9-időterv).
+
+⏱ The time budget is tight on purpose. If a chapter takes much longer than planned, open the hints sooner.
 
 ## Chapters
 
-| # | Chapter | Milestone | Course lecture to review |
-|---|---|---|---|
-| 1 | [SSB theory](01-theory.md) | — | (signals & systems background) |
-| 2 | [Designing the filters](02-filters.md) | M2 | L3 Functions, L4 Graphics |
-| 3 | [Offline prototype](03-offline-prototype.md) | M1 | L4 Data import (`audioread`, `sound`) |
-| 4 | [Frames and state](04-frames-and-state.md) | — | L5 Streaming (`stream_function.m`), L3 `persistent` |
-| 5 | [System objects](05-system-objects.md) | M3 | L5 Objects & Streaming |
-| 6 | [Testing](06-testing.md) | M3, M4 | L7 Validation & testing, L8 `timeit` |
-| 7 | [Sources, sinks and the engine](07-engine.md) | M4 | L5 Objects (classes), L7 `onCleanup`, L8 Preallocation |
-| 8 | [GUI with App Designer](08-gui.md) | M5 | L6 GUI, L3 callbacks, L5 `audioplayer` |
-| 9 | [Deployment and polish](09-deploy-and-polish.md) | M6 | Deployment lecture, style guide |
-| 10 | 🔶 [Phase 2: live streaming](10-phase2-live-streaming.md) | *M7* | L5 `realtime_audio.m`, `acousticRealTimeEcho.m` |
+| # | Chapter | Time | Milestone | Course lecture |
+|---|---|---|---|---|
+| 1 | [SSB in one page of math](01-theory.md) | 45 min | M1 | — |
+| 2 | [Toolbox building blocks](02-building-blocks.md) | 1 h 15 | M1 | L5 Objects & Streaming |
+| 3 | [Your own System objects](03-system-objects.md) | 2 h | M2 | L5 (custom System objects), L7 validation |
+| 4 | [The streaming loop](04-streaming.md) | 1 h | M3 | L5 `realtime_audio.m`, `stream_function.m` |
+| 5 | [GUI with App Designer](05-gui.md) | 3 h | M4 | L6 GUI, L3 callbacks |
+| 6 | [Tests, deployment, demo](06-tests-deploy.md) | 2 h | M5, M6 | L7 testing, deployment lecture |
 
-Chapters 2 and 3 can be done in either order. Chapter 3 is more motivating; chapter 2 is the base for everything after it.
+Optional parts are marked ⭐ **Optional**. Do them only if you're ahead of schedule.
 
-## Folder layout you will build
+## Before you start (10 minutes)
+
+1. Run `ver` and check that you have **DSP System Toolbox**, **Audio Toolbox** and **MATLAB Compiler**.
+2. Use **desktop MATLAB**. Live audio devices probably won't work in MATLAB Online.
+3. Get a test WAV at **44.1 or 48 kHz**. The course's `speech_dft_8kHz.wav` is too low (chapter 1 explains why).
+   `valami_amerika.wav` from Exercise 5 is a good candidate; check it with `audioinfo`.
+4. Have **headphones**. Mic → speaker loopback without them gives acoustic feedback (howling).
+
+## Folder layout
 
 ```
 matlab-project/
 ├── SPEC.md
-├── src/
-│   ├── dsp/      designKaiserWindow.m, designHilbertFir.m, designLowpassFir.m,
-│   │             designBandpassFir.m, SSBModulator.m, SSBDemodulator.m
-│   ├── io/       FrameSource.m, ToneSource.m, FileSource.m, FrameSink.m, BufferSink.m
-│   │             🔶 MicSource.m, SpeakerSink.m, MultiSink.m   (Phase 2)
-│   ├── engine/   SSBEngine.m, SpectrumMonitor.m, createSource.m, createSink.m
-│   └── processFile.m
-├── app/          SSBApp.mlapp
-├── tests/        ssbTests.m, engineTests.m, EndlessSource.m (test helper)
-├── scratch/      your experiments (prototype_offline.m, plotFilters.m, …)
+├── src/       SSBModulator.m, SSBDemodulator.m
+├── app/       SSBApp.mlapp
+├── tests/     ssbTests.m
+├── scratch/   experiments, liveDemo.m
 └── deploy/
 ```
 
-Add `src` to the path while working: `addpath(genpath('src'))`, or better, make a
-MATLAB Project (`.prj`) that does it for you.
-
-## Toolboxes
-
-Phase 1 needs **base MATLAB only**, so it works in MATLAB Online too. The Signal Processing Toolbox is
-useful for cross-checking (`freqz`, `kaiser`, `hilbert`) and better resampling (`resample`).
-🔶 Phase 2 needs `audioDeviceWriter`/`audioDeviceReader` (Audio Toolbox / DSP System Toolbox) and desktop MATLAB.
+Add `src` to the path while working: `addpath('src')`.
