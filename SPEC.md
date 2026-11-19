@@ -5,16 +5,6 @@
 
 ---
 
-## Működés
-
-```
- ┌──────────────────┐     ┌────────────┐     ┌──────────────┐     ┌──────────────────┐
- │  audio bemenet   │     │            │     │              │     │    hangszóró     │
- │    vagy fájl     │ ──▶ │ modulátor  │ ──▶ │ demodulátor  │ ──▶ │    vagy fájl     │
- └──────────────────┘     └────────────┘     └──────────────┘     └──────────────────┘
-                          └──── valós idejű (streaming) feldolgozás ────┘
-```
-
 | | |
 |---|---|
 | **Bemenet** | audio bemenet vagy fájl |
