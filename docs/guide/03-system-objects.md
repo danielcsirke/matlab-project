@@ -100,7 +100,7 @@ classdef SSBModulator < matlab.System
 
     methods (Access = protected)
         function validatePropertiesImpl(obj)
-            % TODO: SPEC FR-5.1, error id 'SSB:invalidCarrier'
+            % TODO: carrier range 3.6 kHz … fs/2 - 3.6 kHz (chapter 1, Q6), error id 'SSB:invalidCarrier'
         end
         function setupImpl(obj, ~)
             % TODO: create the low-pass filter and dsp.AnalyticSignal, phase = 0

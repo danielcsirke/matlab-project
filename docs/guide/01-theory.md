@@ -96,8 +96,10 @@ Everything must fit between 0 and $f_s/2$. With a 3.4 kHz message and 200 Hz saf
 <details>
 <summary><b>✅ Answer</b></summary>
 
-$f_c - 3.4 > 0.2$ and $f_c + 3.4 < 24 - 0.2$ give **3.6 kHz < f_c < 20.4 kHz** (SPEC FR-5.1).
-At 8 kHz, $f_s/2$ = 4 kHz, so there's no room for a carrier at all (SPEC FR-5.2).
+$f_c - 3.4 > 0.2$ and $f_c + 3.4 < 24 - 0.2$ give **3.6 kHz < f_c < 20.4 kHz**. In general: $3.6\text{ kHz} < f_c < f_s/2 - 3.6\text{ kHz}$.
+Your modulator will enforce this range, and the GUI's carrier slider will use it as its limits.
+At 8 kHz, $f_s/2$ = 4 kHz, so there's no room for a carrier at all. The app must reject such files with a clear message
+(anything below 44.1 kHz is a safe rule).
 Also: the message must be **low-pass filtered to 3.4 kHz** before modulation. A 48 kHz file can contain sound up to 24 kHz,
 and shifted up by $f_c$ that would fold back (alias) into the band.
 </details>
