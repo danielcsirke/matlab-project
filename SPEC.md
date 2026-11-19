@@ -1,226 +1,226 @@
-# Specification — SSB-SC Modulator / Demodulator (streaming-ready)
+# Specifikáció — SSB-SC modulátor / demodulátor (streamingre felkészítve)
 
-**Course:** Mérnöki problémamegoldás MATLAB-ban, BME, 2026 fall
-**Status:** Draft v0.2 (2026-11-19). Live audio streaming is moved out of scope, but the architecture is built for it.
+**Tárgy:** Mérnöki problémamegoldás MATLAB-ban, BME, 2026 ősz
+**Állapot:** Tervezet v0.2 (2026-11-19). Az élő hangstreaming kikerült a jelen verzió hatóköréből, de az architektúra fel van rá készítve.
 
 ---
 
-## 1. Purpose
+## 1. Cél
 
-A MATLAB application that **modulates** and **demodulates** audio files using
-**single-sideband suppressed-carrier (SSB-SC)** modulation, with selectable
-**upper (USB)** or **lower (LSB)** sideband. It has a graphical user interface and
-must be deployable as a standalone application.
+Egy MATLAB-alkalmazás, amely hangfájlokat **modulál** és **demodulál**
+**egyoldalsávos, elnyomott vivős (SSB-SC)** modulációval. A **felső (USB)** vagy
+**alsó (LSB)** oldalsáv választható. Az alkalmazásnak grafikus felhasználói felülete
+van, és önálló (standalone) alkalmazásként telepíthetőnek kell lennie.
 
-**Key design decision:** although this version processes **files**, all signal
-processing is **frame-based with internal state**, exactly as a live stream needs.
-Files are fed through the chain frame by frame, using the same interfaces a
-microphone and speaker will use later. Adding live streaming later must only need
-**new source/sink classes plus small GUI additions**, with no change to the DSP,
-the processing engine or the tests (see §9).
+**Kulcsfontosságú tervezési döntés:** bár ez a verzió **fájlokat** dolgoz fel, a teljes
+jelfeldolgozás **keretalapú, belső állapottal**, pontosan úgy, ahogy egy élő stream
+megkövetelné. A fájlok keretenként haladnak át a láncon, ugyanazokon az interfészeken,
+amelyeket később a mikrofon és a hangszóró is használni fog. Az élő streaming későbbi
+hozzáadásához **csak új forrás/nyelő osztályokra és kisebb GUI-kiegészítésekre** lehet szükség;
+a DSP-kód, a feldolgozó motor (engine) és a tesztek nem változhatnak (lásd §9).
 
-## 2. Scope
+## 2. Hatókör
 
-### In scope (this version)
-- SSB-SC modulation by the **phasing (Hilbert) method**, USB or LSB
-- **Sideband-selective coherent demodulation** (phasing demodulator), USB or LSB
-- Frame-based processing of WAV files and generated test signals
-- Playback of the results (`audioplayer`), saving them to WAV, spectrum and waveform plots
-- GUI built with App Designer, deployable with MATLAB Compiler
+### A jelen verzió része
+- SSB-SC moduláció **fázismódszerrel (Hilbert-transzformátorral)**, USB vagy LSB
+- **Oldalsáv-szelektív koherens demoduláció** (fázismódszeres demodulátor), USB vagy LSB
+- WAV-fájlok és generált tesztjelek keretalapú feldolgozása
+- Az eredmények lejátszása (`audioplayer`), mentése WAV-ba, spektrum- és jelalak-ábrák
+- App Designerrel készült GUI, MATLAB Compilerrel telepíthető
 
-### Prepared for, not implemented (Phase 2, see §9)
-- Live microphone input and speaker output (real-time streaming)
+### Felkészítve, de nem megvalósítva (2. fázis, lásd §9)
+- Élő mikrofonbemenet és hangszórókimenet (valós idejű streaming)
 
-### Out of scope (possible extensions, see §13)
-- Transmitted / pilot carrier, carrier recovery, PLL
-- Independent sideband (two different messages on USB and LSB)
-- Radio hardware (SDR)
+### Hatókörön kívül (lehetséges bővítések, lásd §13)
+- Kisugárzott vivő / pilotjel, vivővisszaállítás, PLL
+- Független oldalsáv (két különböző üzenet az USB-n és az LSB-n)
+- Rádiós hardver (SDR)
 
-## 3. Terms
+## 3. Fogalmak
 
-| Term | Meaning |
+| Fogalom | Jelentés |
 |---|---|
-| m(t) | message (baseband audio), band-limited to 300–3400 Hz |
-| m̂(t) | Hilbert transform of m(t) |
-| f_c | carrier frequency (Hz) |
-| USB / LSB | upper / lower sideband; sideband sign `sb = +1` for USB, `-1` for LSB |
-| Δf | receiver detuning: receiver local oscillator (LO) runs at f_c + Δf |
-| Frame | block of `N` consecutive samples, a real `double` column vector |
-| State | everything a block must remember between frames (filter memories, delay lines, oscillator phase) |
-| Source | object that delivers frames (`FrameSource`) |
-| Sink | object that consumes frames (`FrameSink`) |
-| Run | one pass of the engine from a source to a sink |
+| m(t) | üzenet (alapsávi hang), 300–3400 Hz-re sávkorlátozva |
+| m̂(t) | m(t) Hilbert-transzformáltja |
+| f_c | vivőfrekvencia (Hz) |
+| USB / LSB | felső / alsó oldalsáv; oldalsáv-előjel: `sb = +1` USB-nél, `-1` LSB-nél |
+| Δf | a vevő elhangolása: a vevő lokáloszcillátora (LO) f_c + Δf frekvencián fut |
+| Keret (frame) | `N` egymást követő mintából álló blokk, valós `double` oszlopvektor |
+| Állapot (state) | minden, amit egy blokknak meg kell jegyeznie a keretek között (szűrőmemóriák, késleltetővonalak, oszcillátorfázis) |
+| Forrás (source) | kereteket szolgáltató objektum (`FrameSource`) |
+| Nyelő (sink) | kereteket fogadó objektum (`FrameSink`) |
+| Futás (run) | a motor egy teljes menete a forrástól a nyelőig |
 
-## 4. Environment
+## 4. Környezet
 
-| Item | Requirement |
+| Elem | Követelmény |
 |---|---|
-| MATLAB | Recent release (R2023b or newer recommended). Desktop or MATLAB Online, since this version needs no audio devices. |
-| Toolboxes, this version | **Base MATLAB only.** Filters are designed by hand (windowed design, `besseli` for the Kaiser window) and run with `filter`. Playback with `audioplayer`, files with `audioread`/`audiowrite`. |
-| Optional | Signal Processing Toolbox (`resample` for better resampling quality; `freqz`, `kaiser`, `hilbert` for cross-checking), Communications Toolbox (`ssbmod`/`ssbdemod` **only for cross-checking in tests**) |
-| Phase 2 (streaming) | `audioDeviceWriter` (Audio Toolbox or DSP System Toolbox), `audioDeviceReader` (Audio Toolbox), desktop MATLAB |
-| Deployment | MATLAB Compiler |
+| MATLAB | Friss kiadás (R2023b vagy újabb ajánlott). Asztali MATLAB vagy MATLAB Online, mert ez a verzió nem használ hangeszközöket. |
+| Toolboxok (jelen verzió) | **Csak alap MATLAB.** A szűrőket kézzel tervezzük (ablakozásos tervezés, a Kaiser-ablakhoz `besseli`), és `filter`-rel futtatjuk. Lejátszás `audioplayer`-rel, fájlkezelés `audioread`/`audiowrite`-tal. |
+| Opcionális | Signal Processing Toolbox (`resample` a jobb minőségű újramintavételezéshez; `freqz`, `kaiser`, `hilbert` ellenőrzéshez), Communications Toolbox (`ssbmod`/`ssbdemod` **kizárólag tesztekben, ellenőrzésre**) |
+| 2. fázis (streaming) | `audioDeviceWriter` (Audio Toolbox vagy DSP System Toolbox), `audioDeviceReader` (Audio Toolbox), asztali MATLAB |
+| Telepítés | MATLAB Compiler |
 
-## 5. Functional requirements
+## 5. Funkcionális követelmények
 
-### FR-1 Modulator
-- FR-1.1 Implements the phasing method:
-  `s[n] = m_d[n]·cos(φ[n]) − sb·m̂[n]·sin(φ[n])`, where `m_d` is `m` delayed to
-  match the Hilbert filter's group delay.
-- FR-1.2 Sideband selectable: USB or LSB. It is a tunable property, so it can be changed between frames.
-- FR-1.3 Carrier is suppressed (no carrier component in the output).
-- FR-1.4 Carrier frequency `f_c` is tunable and can be changed between frames
-  **without phase jumps** (phase-accumulator oscillator).
-- FR-1.5 The message is band-limited to 300–3400 Hz by an input band-pass filter
-  before modulation.
-- FR-1.6 Frame-based with internal state: the output must not depend on how the
-  input is split into frames (NFR-3).
+### FR-1 Modulátor
+- FR-1.1 A fázismódszert valósítja meg:
+  `s[n] = m_d[n]·cos(φ[n]) − sb·m̂[n]·sin(φ[n])`, ahol `m_d` az `m` jel, a Hilbert-szűrő
+  csoportkésleltetésével megegyező mértékben késleltetve.
+- FR-1.2 Az oldalsáv választható: USB vagy LSB. Hangolható (tunable) tulajdonság, tehát keretek között módosítható.
+- FR-1.3 A vivő el van nyomva (a kimenetben nincs vivőkomponens).
+- FR-1.4 Az `f_c` vivőfrekvencia hangolható, és keretek között **fázisugrás nélkül**
+  módosítható (fázisakkumulátoros oszcillátor).
+- FR-1.5 Moduláció előtt egy bemeneti sáváteresztő szűrő 300–3400 Hz-re korlátozza az üzenetet.
+- FR-1.6 Keretalapú, belső állapottal: a kimenet nem függhet attól, hogyan bontjuk keretekre
+  a bemenetet (NFR-3).
 
-### FR-2 Demodulator
-- FR-2.1 Coherent, sideband-selective phasing demodulator:
+### FR-2 Demodulátor
+- FR-2.1 Koherens, oldalsáv-szelektív, fázismódszeres demodulátor:
   `I = LPF(r·cos φ)`, `Q = LPF(−r·sin φ)`, `y = I_d − sb·H{Q}`.
-- FR-2.2 Sideband selectable (USB/LSB) and tunable. The opposite sideband is rejected.
-- FR-2.3 LO frequency = `f_c + Δf`. Detuning `Δf` is tunable in the range ±500 Hz.
-  (A detuned receiver shifts the recovered audio: USB by −Δf, LSB by +Δf.)
-- FR-2.4 Frame-based with internal state (same as FR-1.6).
+- FR-2.2 Az oldalsáv választható (USB/LSB) és hangolható. Az ellentétes oldalsávot elnyomja.
+- FR-2.3 Az LO frekvenciája `f_c + Δf`. A `Δf` elhangolás ±500 Hz tartományban hangolható.
+  (Elhangolt vevőnél a visszaállított hang eltolódik: USB-nél −Δf, LSB-nél +Δf értékkel.)
+- FR-2.4 Keretalapú, belső állapottal (mint FR-1.6).
 
-### FR-3 Operating modes
-| Mode | Chain |
+### FR-3 Üzemmódok
+| Üzemmód | Lánc |
 |---|---|
-| Loopback (default) | source → modulator → channel → demodulator → sink |
-| Modulator only | source → modulator → sink (e.g. save the SSB signal to a WAV) |
-| Demodulator only | source (SSB signal, e.g. a WAV saved in "Modulator only" mode) → demodulator → sink |
+| Loopback (alapértelmezett) | forrás → modulátor → csatorna → demodulátor → nyelő |
+| Csak modulátor | forrás → modulátor → nyelő (pl. az SSB-jel mentése WAV-ba) |
+| Csak demodulátor | forrás (SSB-jel, pl. "Csak modulátor" módban mentett WAV) → demodulátor → nyelő |
 
-### FR-4 Signal sources (this version)
-- FR-4.1 Test tone (frequency 300–3400 Hz, chosen duration)
-- FR-4.2 Two-tone test signal (e.g. 700 Hz + 1900 Hz, chosen duration)
-- FR-4.3 WAV file: converted to mono, resampled to the working sample rate if needed
-  (`resample` if available, `interp1` otherwise), and normalized **once when loaded**
-  (option `Normalize`, default true; off for files that already contain an SSB signal at a known level).
+### FR-4 Jelforrások (jelen verzió)
+- FR-4.1 Tesztjel: szinusz (frekvencia 300–3400 Hz, választható hossz)
+- FR-4.2 Kéthangú tesztjel (pl. 700 Hz + 1900 Hz, választható hossz)
+- FR-4.3 WAV-fájl: monóvá alakítva, szükség esetén a munka-mintavételi frekvenciára újramintavételezve
+  (`resample`, ha elérhető, egyébként `interp1`), és **betöltéskor egyszer** normálva
+  (`Normalize` opció, alapértéke igaz; kikapcsolandó olyan fájloknál, amelyek már ismert szintű SSB-jelet tartalmaznak).
 
-### FR-5 Channel (loopback mode only)
-- FR-5.1 Optional additive white Gaussian noise, level set in dBFS (−80 … −10 dBFS, or off).
+### FR-5 Csatorna (csak loopback módban)
+- FR-5.1 Opcionális additív fehér Gauss-zaj, szintje dBFS-ben állítható (−80 … −10 dBFS, vagy kikapcsolva).
 
-### FR-6 Output
-- FR-6.1 Each run collects the **message, SSB and demodulated** signals in a `BufferSink`.
-- FR-6.2 Play any of the three (selectable) with `audioplayer`, using volume control and limiting to [−1, 1].
-  No normalization by the whole signal's maximum: the output level is set by a fixed gain only (see R-3).
-- FR-6.3 Save any of the three to a WAV file.
+### FR-6 Kimenet
+- FR-6.1 Minden futás egy `BufferSink`-be gyűjti az **üzenetet, az SSB-jelet és a demodulált** jelet.
+- FR-6.2 A három jel bármelyike (választhatóan) lejátszható `audioplayer`-rel, hangerő-szabályozással és [−1, 1]-re korlátozással.
+  A teljes jel maximumára normálás tilos: a kimeneti szintet kizárólag rögzített erősítés határozza meg (lásd R-3).
+- FR-6.3 A három jel bármelyike WAV-fájlba menthető.
 
-### FR-7 Processing engine
-- FR-7.1 `SSBEngine` runs a source through the chain into a sink, frame by frame, until
-  the source reports `isDone` **or** a stop is requested.
-- FR-7.2 Every K frames it calls an optional `FrameCallback` (progress, plotting, `drawnow`),
-  which the GUI uses for a progress bar, live plot updates and a working Stop button.
-- FR-7.3 It measures processing time per frame and reports the load (% of frame duration),
-  which is evidence of real-time capability (NFR-1).
-- FR-7.4 The same engine runs from the command line without a GUI:
-  `processFile(inFile, outFile, options)` is a thin wrapper around it.
+### FR-7 Feldolgozó motor (engine)
+- FR-7.1 Az `SSBEngine` keretenként végigvezeti a forrás jelét a láncon a nyelőig, amíg
+  a forrás `isDone`-t nem jelez, **vagy** leállítást nem kérnek.
+- FR-7.2 Minden K-adik keret után meghív egy opcionális `FrameCallback`-et (folyamatjelzés, ábrázolás, `drawnow`).
+  Ezt használja a GUI a folyamatjelzőhöz, az ábrák menet közbeni frissítéséhez és a működő Stop gombhoz.
+- FR-7.3 Keretenként méri a feldolgozási időt, és jelenti a terhelést (a keretidő %-ában).
+  Ez bizonyítja a valós idejű alkalmasságot (NFR-1).
+- FR-7.4 Ugyanaz a motor GUI nélkül, parancssorból is futtatható:
+  a `processFile(inFile, outFile, options)` egy vékony burkoló (wrapper) körülötte.
 
 ### FR-8 GUI (App Designer)
-- FR-8.1 Controls: source, file chooser, test tone frequency and duration, mode, sample rate,
-  frame size, modulator sideband, carrier frequency, noise level, demodulator
-  sideband, detuning, signal to play/save, volume, **Process**, **Stop**, **Play**, **Save…**.
-- FR-8.2 Spectrum plot (dB vs kHz, 0 … f_s/2), three traces: message, SSB, demodulated.
-  The spectrum is computed **incrementally** by a `SpectrumMonitor` (averaged per frame) and refreshed from the frame callback while processing.
-- FR-8.3 Waveform plot of a selectable signal.
-- FR-8.4 Status line: frames processed / total, mean and max processing load.
-- FR-8.5 Setup controls (sample rate, frame size, source, mode) are disabled during a run. Tunable
-  controls (sidebands, carrier, detuning, noise) are written into the System objects immediately,
-  so they also take effect in the middle of a long run.
-- FR-8.6 Stop ends a run early. The GUI stays responsive during a run. Closing the window
-  during a run stops it cleanly.
+- FR-8.1 Kezelőszervek: forrás, fájlválasztó, tesztjel frekvenciája és hossza, üzemmód, mintavételi frekvencia,
+  keretméret, modulátor oldalsávja, vivőfrekvencia, zajszint, demodulátor oldalsávja,
+  elhangolás, lejátszandó/mentendő jel, hangerő, **Process**, **Stop**, **Play**, **Save…**.
+- FR-8.2 Spektrumábra (dB a kHz függvényében, 0 … f_s/2), három görbével: üzenet, SSB, demodulált.
+  A spektrumot egy `SpectrumMonitor` **inkrementálisan** számolja (keretenkénti átlagolással), és feldolgozás közben
+  a keret-callbackből frissül.
+- FR-8.3 Jelalak-ábra egy választható jelről.
+- FR-8.4 Állapotsor: feldolgozott / összes keret, átlagos és maximális feldolgozási terhelés.
+- FR-8.5 A beállító kezelőszervek (mintavételi frekvencia, keretméret, forrás, üzemmód) futás közben le vannak tiltva.
+  A hangolható kezelőszervek (oldalsávok, vivő, elhangolás, zaj) azonnal beíródnak a System objectekbe,
+  így egy hosszú futás közepén is hatnak.
+- FR-8.6 A Stop idő előtt befejezi a futást. A GUI futás közben is reagál. Ha futás közben
+  bezárják az ablakot, a futás szabályosan leáll.
 
-### FR-9 Validation and error handling
-- FR-9.1 Parameter validation: `f_c − 3400 Hz > 200 Hz` and `f_c + 3400 Hz < f_s/2 − 200 Hz`.
-  The carrier slider's limits follow from the sample rate.
-- FR-9.2 Errors use identifiers (`SSB:invalidCarrier`, `SSB:invalidInput`, `SSB:invalidFile`, …).
-- FR-9.3 File errors are caught and shown with `uialert`; the app returns to the idle state.
+### FR-9 Ellenőrzés és hibakezelés
+- FR-9.1 Paraméterellenőrzés: `f_c − 3400 Hz > 200 Hz` és `f_c + 3400 Hz < f_s/2 − 200 Hz`.
+  A vivőfrekvencia-csúszka határai a mintavételi frekvenciából adódnak.
+- FR-9.2 A hibák azonosítóval rendelkeznek (`SSB:invalidCarrier`, `SSB:invalidInput`, `SSB:invalidFile`, …).
+- FR-9.3 A fájlhibákat el kell kapni és `uialert`-tel megjeleníteni; az alkalmazás visszatér az alapállapotba.
 
-## 6. DSP design (default values)
+## 6. DSP-tervezés (alapértékek)
 
-| Parameter | Value | Note |
+| Paraméter | Érték | Megjegyzés |
 |---|---|---|
-| Sample rate f_s | 48 kHz (also 44.1 kHz) | |
-| Frame size N | 1024 (options 256 … 4096) | 21.3 ms at 48 kHz |
-| Message band | 300–3400 Hz | |
-| Carrier f_c | 10 kHz default | allowed range from FR-9.1 |
-| Input band-pass | 511-tap FIR, Kaiser window β = 8 (difference of two windowed-sinc low-pass filters) | delay 255 samples |
-| Hilbert transformer | 511-tap type-III FIR, ideal response `2/(πn)` at odd n, Kaiser β = 8 | delay 255 samples; magnitude error < 1e-4 in 300–3400 Hz |
-| Demodulator low-pass | 255-tap windowed sinc, cutoff 4 kHz, Kaiser β = 8 | delay 127 samples |
-| Total loopback latency | 255 + 255 + 127 + 255 = **892 samples ≈ 18.6 ms** | |
+| Mintavételi frekvencia f_s | 48 kHz (44,1 kHz is) | |
+| Keretméret N | 1024 (választható: 256 … 4096) | 48 kHz-en 21,3 ms |
+| Üzenetsáv | 300–3400 Hz | |
+| Vivő f_c | alapértéke 10 kHz | megengedett tartomány: FR-9.1 |
+| Bemeneti sáváteresztő | 511 együtthatós FIR, Kaiser-ablak β = 8 (két ablakozott sinc aluláteresztő különbsége) | késleltetés 255 minta |
+| Hilbert-transzformátor | 511 együtthatós III. típusú FIR, ideális válasz páratlan n-re `2/(πn)`, Kaiser β = 8 | késleltetés 255 minta; amplitúdóhiba < 1e-4 a 300–3400 Hz sávban |
+| Demodulátor aluláteresztő | 255 együtthatós ablakozott sinc, vágási frekvencia 4 kHz, Kaiser β = 8 | késleltetés 127 minta |
+| Teljes loopback-késleltetés | 255 + 255 + 127 + 255 = **892 minta ≈ 18,6 ms** | |
 
-These values were checked with a numerical reference model (outside MATLAB): sideband suppression ≈ 100 dB for
-a 1 kHz tone, about 80 dB at the 300 Hz band edge, and loopback RMS error ≈ 0.2%.
-They must be re-checked in MATLAB by the test suite (§10).
+Ezeket az értékeket egy (MATLAB-on kívüli) numerikus referenciamodell ellenőrizte: az oldalsáv-elnyomás
+1 kHz-es szinusznál ≈ 100 dB, a 300 Hz-es sávszélen kb. 80 dB, a loopback RMS-hibája ≈ 0,2%.
+MATLAB-ban a tesztkészletnek (§10) újra ellenőriznie kell őket.
 
-## 7. Non-functional requirements
+## 7. Nem funkcionális követelmények
 
-| ID | Requirement |
+| Azonosító | Követelmény |
 |---|---|
-| NFR-1 | Real-time capable: processing one frame (whole chain, without plotting) takes < 50% of the frame duration. Measured and shown even though this version doesn't play live. |
-| NFR-2 | No discontinuities at frame boundaries (follows from NFR-3). |
-| NFR-3 | Frame-size invariance: processing the same signal with different frame splits gives outputs that differ by < 1e-9. |
-| NFR-4 | Base MATLAB only. |
-| NFR-5 | Code style follows the course style guide (`MatlabStyle2 book.pdf`); every public function/class has a help comment. |
-| NFR-6 | Deployable as a standalone app with MATLAB Compiler. |
-| NFR-7 | **Streaming readiness:** the rules R-1 … R-6 in §9.2 hold. |
+| NFR-1 | Valós idejű alkalmasság: egy keret feldolgozása (a teljes lánc, ábrázolás nélkül) a keretidő < 50%-a. Akkor is mérjük és kijelezzük, ha ez a verzió nem játszik le élőben. |
+| NFR-2 | Nincs szakadás a kerethatárokon (NFR-3-ból következik). |
+| NFR-3 | Keretméret-függetlenség: ugyanazt a jelet különböző keretbontással feldolgozva a kimenetek eltérése < 1e-9. |
+| NFR-4 | Csak alap MATLAB. |
+| NFR-5 | A kódstílus a tárgy stílusútmutatóját követi (`MatlabStyle2 book.pdf`); minden publikus függvénynek/osztálynak van help-kommentje. |
+| NFR-6 | MATLAB Compilerrel önálló alkalmazásként telepíthető. |
+| NFR-7 | **Streamingre való felkészítettség:** a §9.2 R-1 … R-6 szabályai teljesülnek. |
 
-## 8. Architecture
+## 8. Architektúra
 
 ```
                  ┌─────────────────────────── SSBEngine ───────────────────────────┐
 ┌─────────────┐  │  ┌──────────────┐   ┌─────────┐   ┌────────────────┐            │  ┌────────────┐
-│ FrameSource │──┼─▶│ SSBModulator │──▶│ channel │──▶│ SSBDemodulator │──┬─────────┼─▶│ FrameSink  │
-│ (abstract)  │  │  │ (System obj) │   │ (noise) │   │ (System obj)   │  │         │  │ (abstract) │
+│ FrameSource │──┼─▶│ SSBModulator │──▶│ csatorna│──▶│ SSBDemodulator │──┬─────────┼─▶│ FrameSink  │
+│ (absztrakt) │  │  │ (System obj) │   │  (zaj)  │   │ (System obj)   │  │         │  │ (absztrakt)│
 └─────────────┘  │  └──────────────┘   └─────────┘   └────────────────┘  │         │  └────────────┘
  ToneSource      │                                                       ▼         │   BufferSink
- FileSource      │   every K frames ──▶ FrameCallback ──▶ SpectrumMonitor, GUI     │  [SpeakerSink]
+ FileSource      │   minden K-adik keret ──▶ FrameCallback ──▶ SpectrumMonitor, GUI │  [SpeakerSink]
  [MicSource]     └─────────────────────────────────────────────────────────────────┘
-                                         [ ] = Phase 2
+                                         [ ] = 2. fázis
 ```
 
-### 8.1 Components
+### 8.1 Komponensek
 
-| File | Kind | Responsibility |
+| Fájl | Típus | Feladat |
 |---|---|---|
-| `src/dsp/designKaiserWindow.m` | function | `w = designKaiserWindow(L, beta)` |
-| `src/dsp/designHilbertFir.m` | function | `h = designHilbertFir(L, beta)`, odd L |
-| `src/dsp/designLowpassFir.m` | function | `h = designLowpassFir(L, fCut, fs, beta)` |
-| `src/dsp/designBandpassFir.m` | function | `h = designBandpassFir(L, fLow, fHigh, fs, beta)` |
-| `src/dsp/SSBModulator.m` | `matlab.System` | FR-1. Tunable: `CarrierFrequency`, `Sideband`. Nontunable: `SampleRate`, filter lengths, band edges. Method `latency()` |
-| `src/dsp/SSBDemodulator.m` | `matlab.System` | FR-2. Tunable: `CarrierFrequency`, `Detune`, `Sideband`. Method `latency()` |
-| `src/io/FrameSource.m` | abstract handle class | source interface (§8.2) |
+| `src/dsp/designKaiserWindow.m` | függvény | `w = designKaiserWindow(L, beta)` |
+| `src/dsp/designHilbertFir.m` | függvény | `h = designHilbertFir(L, beta)`, páratlan L |
+| `src/dsp/designLowpassFir.m` | függvény | `h = designLowpassFir(L, fCut, fs, beta)` |
+| `src/dsp/designBandpassFir.m` | függvény | `h = designBandpassFir(L, fLow, fHigh, fs, beta)` |
+| `src/dsp/SSBModulator.m` | `matlab.System` | FR-1. Hangolható: `CarrierFrequency`, `Sideband`. Nem hangolható: `SampleRate`, szűrőhosszak, sávhatárok. Metódus: `latency()` |
+| `src/dsp/SSBDemodulator.m` | `matlab.System` | FR-2. Hangolható: `CarrierFrequency`, `Detune`, `Sideband`. Metódus: `latency()` |
+| `src/io/FrameSource.m` | absztrakt handle osztály | forrás-interfész (§8.2) |
 | `src/io/ToneSource.m` | `< FrameSource` | FR-4.1, FR-4.2 |
 | `src/io/FileSource.m` | `< FrameSource` | FR-4.3 |
-| `src/io/FrameSink.m` | abstract handle class | sink interface (§8.2) |
-| `src/io/BufferSink.m` | `< FrameSink` | FR-6: collects frames in a preallocated buffer that grows in chunks |
-| `src/engine/SSBEngine.m` | handle class | FR-7: owns modulator, demodulator, channel; `run`, `requestStop`, `processFrame` |
-| `src/engine/SpectrumMonitor.m` | handle class | FR-8.2: incremental averaged spectra |
-| `src/engine/defaultSettings.m` | function | the settings struct with all default values (shared by GUI, `processFile` and tests) |
-| `src/engine/createSource.m`, `createSink.m` | factory functions | build a source/sink from a settings struct, **the single place Phase 2 extends** |
-| `src/processFile.m` | function | FR-7.4 command-line wrapper |
+| `src/io/FrameSink.m` | absztrakt handle osztály | nyelő-interfész (§8.2) |
+| `src/io/BufferSink.m` | `< FrameSink` | FR-6: előre lefoglalt, darabonként bővülő pufferbe gyűjti a kereteket |
+| `src/engine/SSBEngine.m` | handle osztály | FR-7: birtokolja a modulátort, a demodulátort és a csatornát; `run`, `requestStop`, `processFrame` |
+| `src/engine/SpectrumMonitor.m` | handle osztály | FR-8.2: inkrementálisan átlagolt spektrumok |
+| `src/engine/defaultSettings.m` | függvény | a beállítás-struct az összes alapértékkel (közös a GUI, a `processFile` és a tesztek számára) |
+| `src/engine/createSource.m`, `createSink.m` | gyártófüggvények | forrás/nyelő létrehozása a beállítás-structból; **ez az egyetlen hely, amelyet a 2. fázis bővít** |
+| `src/processFile.m` | függvény | FR-7.4 parancssori burkoló |
 | `app/SSBApp.mlapp` | App Designer | FR-8 |
-| `tests/` | unit tests | §10 |
-| `deploy/` | Compiler project | NFR-6 |
+| `tests/` | egységtesztek | §10 |
+| `deploy/` | Compiler-projekt | NFR-6 |
 
-### 8.2 Interfaces (contracts)
+### 8.2 Interfészek (szerződések)
 
-All frames are real `double` **column vectors**. The sample rate and frame size are fixed for one run.
+Minden keret valós `double` **oszlopvektor**. A mintavételi frekvencia és a keretméret egy futáson belül állandó.
 
 ```matlab
 classdef (Abstract) FrameSource < handle
-    properties (SetAccess = protected)      % set by the subclass constructor
+    properties (SetAccess = protected)      % az alosztály konstruktora állítja be
         SampleRate      % Hz
-        FrameSize       % samples per frame (the last frame of a finite source may be shorter)
+        FrameSize       % minta/keret (véges forrás utolsó kerete rövidebb lehet)
     end
     methods (Abstract)
         x = nextFrame(obj)      % N×1 double
-        tf = isDone(obj)        % true when a finite source is exhausted; a live source always returns false
-        n = totalFrames(obj)    % number of frames, or Inf for a live source (used by the progress bar)
+        tf = isDone(obj)        % igaz, ha a véges forrás kifogyott; élő forrás mindig hamisat ad
+        n = totalFrames(obj)    % keretek száma, élő forrásnál Inf (a folyamatjelző használja)
     end
     methods
-        function release(obj) %#ok<MANU>  % free resources (files, devices); default: nothing
+        function release(obj) %#ok<MANU>  % erőforrások (fájlok, eszközök) felszabadítása; alapból semmi
         end
     end
 end
@@ -229,7 +229,7 @@ end
 ```matlab
 classdef (Abstract) FrameSink < handle
     methods (Abstract)
-        write(obj, frames)      % frames: struct with fields message, ssb, demodulated, monitor (all N×1)
+        write(obj, frames)      % frames: struct, mezői: message, ssb, demodulated, monitor (mind N×1)
     end
     methods
         function release(obj) %#ok<MANU>
@@ -240,85 +240,85 @@ end
 
 `SSBEngine`:
 
-| Member | Description |
+| Tag | Leírás |
 |---|---|
-| `SSBEngine(settings)` | creates modulator, demodulator from a settings struct |
-| `Modulator`, `Demodulator` | public, so the GUI can write tunable properties directly |
-| `Mode`, `NoiseLevelDb`, `MonitorSignal`, `Volume` | public, tunable at any time |
-| `FrameCallback`, `CallbackEvery` | `@(engine, frames, info)` hook, called every K frames; `info` has `frameIndex`, `totalFrames`, `loadPercent` |
-| `frames = processFrame(obj, x)` | one frame through the chain according to `Mode`; returns the struct passed to sinks |
-| `stats = run(obj, source, sink)` | loop `while ~isDone(source) && ~stopRequested`; at the end (also on error, via `onCleanup`) `release` the System objects, the source and the sink, so every run starts from a fresh setup; return load statistics |
-| `requestStop(obj)` | sets the stop flag; safe to call from a callback during `run` |
+| `SSBEngine(settings)` | a beállítás-structból létrehozza a modulátort és a demodulátort |
+| `Modulator`, `Demodulator` | publikusak, hogy a GUI közvetlenül írhassa a hangolható tulajdonságaikat |
+| `Mode`, `NoiseLevelDb`, `MonitorSignal`, `Volume` | publikusak, bármikor hangolhatók |
+| `FrameCallback`, `CallbackEvery` | `@(engine, frames, info)` hook, minden K-adik keret után hívódik; az `info` mezői: `frameIndex`, `totalFrames`, `loadPercent` |
+| `frames = processFrame(obj, x)` | egy keret végigvezetése a láncon a `Mode` szerint; a nyelőknek átadott structot adja vissza |
+| `stats = run(obj, source, sink)` | ciklus: `while ~isDone(source) && ~stopRequested`; a végén (hiba esetén is, `onCleanup`-pal) `release`-eli a System objecteket, a forrást és a nyelőt, így minden futás friss setuppal indul; terhelési statisztikát ad vissza |
+| `requestStop(obj)` | beállítja a leállítási jelzőt; futás közben callbackből is biztonságosan hívható |
 
-## 9. Streaming readiness (Phase 2)
+## 9. Streamingre való felkészítettség (2. fázis)
 
-### 9.1 What Phase 2 adds — and nothing else
+### 9.1 Amit a 2. fázis hozzáad, és semmi más
 
-| Work item | Size |
+| Feladat | Méret |
 |---|---|
-| `src/io/MicSource.m` (`< FrameSource`): wraps `audioDeviceReader`; `isDone` → false; `totalFrames` → Inf; reports overruns | ~30 lines |
-| `src/io/SpeakerSink.m` (`< FrameSink`): wraps `audioDeviceWriter`, plays `frames.monitor`; reports underruns | ~25 lines |
-| `createSource` / `createSink`: add the cases `'mic'` and `'speaker'`; let `ToneSource`/`FileSource` loop forever when `settings.loop` is true | ~10 lines |
-| GUI: add "Microphone" to the source list and a "Live output" checkbox; show under/overrun counts in the status line | ~20 lines |
-| `MultiSink` (optional): write to several sinks at once, so you can listen live **and** record | ~20 lines |
+| `src/io/MicSource.m` (`< FrameSource`): az `audioDeviceReader` burkolója; `isDone` → false; `totalFrames` → Inf; jelenti az overrunokat | ~30 sor |
+| `src/io/SpeakerSink.m` (`< FrameSink`): az `audioDeviceWriter` burkolója, lejátssza a `frames.monitor`-t; jelenti az underrunokat | ~25 sor |
+| `createSource` / `createSink`: a `'mic'` és `'speaker'` esetek hozzáadása; a `ToneSource`/`FileSource` végtelenítése, ha `settings.loop` igaz | ~10 sor |
+| GUI: "Microphone" a forráslistában és egy "Live output" jelölőnégyzet; under/overrun számlálók az állapotsorban | ~20 sor |
+| `MultiSink` (opcionális): több nyelőbe ír egyszerre, így egyszerre lehet élőben hallgatni **és** rögzíteni | ~20 sor |
 
-**Unchanged in Phase 2:** `SSBModulator`, `SSBDemodulator`, filter design, `SSBEngine`, `SpectrumMonitor`,
-all existing tests, Stop/close handling, slider callbacks.
-Estimated Phase 2 effort: **8–12 hours**, most of it testing with real audio devices.
+**A 2. fázisban változatlan marad:** `SSBModulator`, `SSBDemodulator`, a szűrőtervezés, az `SSBEngine`, a `SpectrumMonitor`,
+az összes meglévő teszt, a Stop és az ablakbezárás kezelése, a csúszkák callbackjei.
+A 2. fázis becsült ráfordítása: **8–12 óra**, ennek nagy része a valódi hangeszközökkel való tesztelés.
 
-### 9.2 Rules this version must follow so §9.1 holds
+### 9.2 Szabályok, amelyeket a jelen verziónak be kell tartania, hogy a §9.1 teljesüljön
 
-| Rule | Meaning | Checked by |
+| Szabály | Jelentés | Ellenőrzés |
 |---|---|---|
-| R-1 | No operation in the chain may need the whole signal: no `hilbert()`/`fft` over the signal, no normalization by the global maximum, no look-ahead. (One-time preparation inside a source, like normalizing a file at load time, is allowed.) | code review, T7 |
-| R-2 | The engine never assumes a finite source: it stops on `isDone` **or** `requestStop`, and handles `totalFrames == Inf`. | T13 |
-| R-3 | The output level is set by a fixed gain + limiter, never by looking at the whole result. | code review |
-| R-4 | Processing time per frame < 50% of the frame duration (NFR-1). | T11 |
-| R-5 | The GUI must never block during a run: all GUI updates and `drawnow limitrate` happen in the `FrameCallback`. | T12 |
-| R-6 | Only `createSource`/`createSink` know concrete source/sink classes; the engine and the GUI only use the abstract interfaces. | code review |
+| R-1 | A láncban egyetlen művelet sem igényelheti a teljes jelet: nincs `hilbert()`/`fft` a teljes jelen, nincs normálás a globális maximumra, nincs előretekintés. (A forráson belüli egyszeri előkészítés, például a fájl normálása betöltéskor, megengedett.) | kódátnézés, T7 |
+| R-2 | A motor sosem feltételez véges forrást: `isDone` **vagy** `requestStop` hatására áll le, és kezeli a `totalFrames == Inf` esetet. | T13 |
+| R-3 | A kimeneti szintet rögzített erősítés + korlátozó határozza meg, sosem a teljes eredmény vizsgálata. | kódátnézés |
+| R-4 | Egy keret feldolgozási ideje < a keretidő 50%-a (NFR-1). | T11 |
+| R-5 | A GUI futás közben sosem blokkolhat: minden GUI-frissítés és a `drawnow limitrate` a `FrameCallback`-ben történik. | T12 |
+| R-6 | Csak a `createSource`/`createSink` ismeri a konkrét forrás/nyelő osztályokat; a motor és a GUI csak az absztrakt interfészeket használja. | kódátnézés |
 
-## 10. Acceptance tests
+## 10. Elfogadási tesztek
 
-| ID | Test | Pass criterion | Covers |
+| Azonosító | Teszt | Elfogadási feltétel | Lefedi |
 |---|---|---|---|
-| T1 | USB, 1 kHz tone, f_c = 10 kHz | power at 11 kHz is ≥ 60 dB above power at 9 kHz | FR-1.1–1.3 |
-| T2 | LSB, same | 9 kHz is ≥ 60 dB above 11 kHz | FR-1.2 |
-| T3 | Carrier suppression | power at f_c ≥ 60 dB below the wanted tone | FR-1.3 |
-| T4 | Loopback USB→USB and LSB→LSB with a multitone in 500–3000 Hz | RMS error vs. message delayed by `latency` ≤ 1% | FR-2.1 |
-| T5 | Wrong sideband: USB→LSB and LSB→USB | output power ≥ 60 dB below the matched case | FR-2.2 |
-| T6 | Detune +100 Hz, 1 kHz tone | output peak at 900 Hz (USB) / 1100 Hz (LSB) | FR-2.3 |
-| T7 | Frame-size invariance (N = 1024 vs. irregular splits) | max difference < 1e-9 | NFR-3, R-1 |
-| T8 | Carrier change between frames | no sample-to-sample jump larger than with a constant carrier | FR-1.4 |
-| T9 | Invalid carrier (e.g. 23 kHz at 48 kHz) | throws `SSB:invalidCarrier` | FR-9.1 |
-| T10 | `reset` clears the state | output after `reset` equals output of a fresh object | FR-1.6 |
-| T11 | Timing: mean `processFrame` time at N = 1024 | < 50% of 21.3 ms | NFR-1, R-4 |
-| T12 | Manual: long file, move sliders and press Stop during a run, close window during a run | GUI responsive, clean stop | FR-8.5, FR-8.6, R-5 |
-| T13 | Engine with an **endless test source** (`isDone` always false, `totalFrames` Inf) and a callback that calls `requestStop` after 50 frames | `run` returns after exactly 50 frames, objects released | FR-7.1, R-2 |
-| T14 | `processFile` round trip: modulator-only to file, then demodulator-only from that file (noise off, `FileSource` normalization off, 32-bit float WAV) | equals loopback output within 1e-6 | FR-3, FR-7.4 |
+| T1 | USB, 1 kHz-es szinusz, f_c = 10 kHz | a teljesítmény 11 kHz-en ≥ 60 dB-lel nagyobb, mint 9 kHz-en | FR-1.1–1.3 |
+| T2 | LSB, ugyanígy | 9 kHz-en ≥ 60 dB-lel nagyobb, mint 11 kHz-en | FR-1.2 |
+| T3 | Vivőelnyomás | a teljesítmény f_c-n ≥ 60 dB-lel kisebb a hasznos komponensnél | FR-1.3 |
+| T4 | Loopback USB→USB és LSB→LSB, 500–3000 Hz közötti többhangú jellel | RMS-hiba a `latency`-vel késleltetett üzenethez képest ≤ 1% | FR-2.1 |
+| T5 | Rossz oldalsáv: USB→LSB és LSB→USB | a kimeneti teljesítmény ≥ 60 dB-lel kisebb, mint az illeszkedő esetben | FR-2.2 |
+| T6 | Elhangolás +100 Hz, 1 kHz-es szinusz | kimeneti csúcs 900 Hz-en (USB) / 1100 Hz-en (LSB) | FR-2.3 |
+| T7 | Keretméret-függetlenség (N = 1024 kontra szabálytalan bontás) | maximális eltérés < 1e-9 | NFR-3, R-1 |
+| T8 | Vivőváltás keretek között | nincs nagyobb mintáról mintára ugrás, mint állandó vivőnél | FR-1.4 |
+| T9 | Érvénytelen vivő (pl. 23 kHz 48 kHz-en) | `SSB:invalidCarrier` hibát dob | FR-9.1 |
+| T10 | A `reset` törli az állapotot | a `reset` utáni kimenet megegyezik egy friss objektum kimenetével | FR-1.6 |
+| T11 | Időzítés: a `processFrame` átlagos ideje N = 1024 esetén | < a 21,3 ms 50%-a | NFR-1, R-4 |
+| T12 | Kézi teszt: hosszú fájl; futás közben csúszkák mozgatása és Stop; futás közben ablakbezárás | a GUI reagál, szabályos leállás | FR-8.5, FR-8.6, R-5 |
+| T13 | A motor egy **végtelen tesztforrással** (`isDone` mindig hamis, `totalFrames` Inf) és egy callbackkel, amely 50 keret után `requestStop`-ot hív | a `run` pontosan 50 keret után visszatér, az objektumok fel vannak szabadítva | FR-7.1, R-2 |
+| T14 | `processFile` oda-vissza: csak modulátor fájlba, majd csak demodulátor abból a fájlból (zaj ki, `FileSource`-normálás ki, 32 bites lebegőpontos WAV) | 1e-6-on belül megegyezik a loopback kimenettel | FR-3, FR-7.4 |
 
-T13 is the test that simulates a live stream: it proves the engine is ready for `MicSource` without having one.
+A T13 az a teszt, amely élő streamet szimulál: bizonyítja, hogy a motor készen áll a `MicSource`-ra, anélkül hogy az létezne.
 
-## 11. Milestones
+## 11. Mérföldkövek
 
-| # | Milestone | Done when |
+| # | Mérföldkő | Kész, ha |
 |---|---|---|
-| M1 | Theory and offline prototype (whole signal) | USB/LSB spectra plotted correctly |
-| M2 | Filter design functions | frequency responses plotted, Hilbert error < 1e-3 in band |
-| M3 | Frame-based modulator and demodulator as System objects | T1–T10 pass |
-| M4 | Sources, sinks, engine, `processFile`, `SpectrumMonitor` | T11, T13, T14 pass |
-| M5 | App Designer GUI | FR-8 complete, T12 passes |
-| M6 | Deployment | standalone app runs on a machine without MATLAB |
-| *M7* | *Phase 2: live streaming (§9.1)* | *live loopback with mic and speaker, 0 underruns in steady state* |
+| M1 | Elmélet és offline prototípus (teljes jel egyben) | az USB/LSB spektrumok helyesen kirajzolva |
+| M2 | Szűrőtervező függvények | a frekvenciaválaszok kirajzolva, a Hilbert-hiba < 1e-3 a sávban |
+| M3 | Keretalapú modulátor és demodulátor System objectként | T1–T10 sikeres |
+| M4 | Források, nyelők, motor, `processFile`, `SpectrumMonitor` | T11, T13, T14 sikeres |
+| M5 | App Designer GUI | FR-8 teljes, T12 sikeres |
+| M6 | Telepítés | az önálló alkalmazás MATLAB nélküli gépen is fut |
+| *M7* | *2. fázis: élő streaming (§9.1)* | *élő loopback mikrofonnal és hangszóróval, állandósult állapotban 0 underrun* |
 
-## 12. Open questions (ask the instructor)
-1. Is App Designer (`.mlapp`) required, or is a programmatic `uifigure` app also accepted?
-2. May the Communications Toolbox `ssbmod`/`ssbdemod` be used in tests as a reference?
-3. Which deployment target is expected: standalone desktop app or web app?
-4. Is file-based processing with a streaming-ready architecture enough, or is live audio expected?
+## 12. Nyitott kérdések (az oktatótól megkérdezendő)
+1. Kötelező az App Designer (`.mlapp`), vagy programozottan felépített `uifigure`-alkalmazás is elfogadható?
+2. Használható-e a Communications Toolbox `ssbmod`/`ssbdemod` függvénye referenciaként a tesztekben?
+3. Milyen telepítési cél az elvárt: önálló asztali alkalmazás vagy webalkalmazás?
+4. Elegendő-e a fájlalapú feldolgozás streamingre felkészített architektúrával, vagy élő hang az elvárás?
 
-## 13. Possible extensions
-- Phase 2 live streaming (§9)
-- Transmitted carrier + envelope detector, to show why SSB-SC needs coherent detection
-- Carrier recovery (pilot tone + PLL)
-- Independent sideband: two files on USB and LSB at the same time
-- Weaver modulator as an alternative to the phasing method, compared side by side
+## 13. Lehetséges bővítések
+- 2. fázis: élő streaming (§9)
+- Kisugárzott vivő + burkolódetektor, annak bemutatására, miért igényel az SSB-SC koherens demodulációt
+- Vivővisszaállítás (pilotjel + PLL)
+- Független oldalsáv: két fájl egyszerre az USB-n és az LSB-n
+- Weaver-modulátor a fázismódszer alternatívájaként, egymás melletti összehasonlítással

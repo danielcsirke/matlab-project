@@ -40,7 +40,7 @@ Parts that belong to Phase 2 are marked like this:
 1. Read the chapter, including the "why" parts.
 2. Answer the 🧠 questions on paper **before** opening the answers.
 3. Write the code for the 🛠 task. Use the hint only if you're stuck for more than 20–30 minutes.
-4. Pass the 🎯 checkpoint before moving on. Each checkpoint matches a milestone in [`SPEC.md`](../../SPEC.md#11-milestones).
+4. Pass the 🎯 checkpoint before moving on. Each checkpoint matches a milestone in [`SPEC.md`](../../SPEC.md#11-mérföldkövek).
 
 ## Chapters
 
